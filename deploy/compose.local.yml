@@ -1,0 +1,143 @@
+include:
+  - ../../..//tes/tes/stacks/zitadel/compose.yaml
+
+
+services:
+  traefik:
+    image: traefik:latest
+    command:
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+    environment:
+      - DOCKER_API_VERSION=1.44
+    ports:
+      - "80:80"
+      - "8081:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - traefik-net
+
+  # --------------------------------------------------------------------------
+  # KINYU APP SERVICES
+  # --------------------------------------------------------------------------
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    image: kinyu-backend:latest
+    ports:
+      - "8000:8000"
+    environment:
+      # Use kinyu-db host (internal docker network)
+      - DATABASE_URL=postgresql+asyncpg://user:password@kinyu-db:5432/kinyu_db
+      - BACKEND_CORS_ORIGINS=["http://kinyu.lan","https://kinyu.lan","http://localhost:3000","http://127.0.0.1:3000"]
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.backend.rule=Host(`api.kinyu.lan`)"
+      - "traefik.http.routers.backend.entrypoints=web"
+      - "traefik.http.services.backend.loadbalancer.server.port=8000"
+      - "traefik.docker.network=edge-external"
+    networks:
+      - default
+      - traefik-net
+    depends_on:
+      - kinyu-db
+      # Wait for Zitadel too? Ideally yes, but not strictly required for startup if lazy loaded
+    deploy:
+      restart_policy:
+        condition: on-failure
+
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    image: kinyu-frontend:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - NUXT_PUBLIC_API_BASE=http://api.kinyu.lan/api/v1
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.frontend.rule=Host(`kinyu.lan`)"
+      - "traefik.http.routers.frontend.entrypoints=web"
+      - "traefik.docker.network=edge-external"
+    networks:
+      - default
+      - traefik-net
+    extra_hosts:
+      - "api.kinyu.lan:host-gateway"
+      - "auth.kinyu.lan:host-gateway"
+    depends_on:
+      - backend
+    deploy:
+      restart_policy:
+        condition: on-failure
+
+  kinyu-db:
+    image: postgres:18-alpine
+    environment:
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=kinyu_db
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    ports:
+      # Host 5434 -> Container 5432 (To avoid conflict with Zitadel's DB on 5432)
+      - "5434:5432"
+    deploy:
+      restart_policy:
+        condition: on-failure
+
+  # --------------------------------------------------------------------------
+  # ZITADEL GOLDEN STACK OVERRIDES
+  # --------------------------------------------------------------------------
+
+  # Override the 'zitadel' service from the included stack
+  zitadel:
+    ports:
+      - "8080:8080"
+    command: 'start-from-init --masterkey "MasterkeyNeedsToBe32BytesLong123"'
+
+    environment:
+      # We only need to add the PAT here.
+      # Other settings (EXTERNALSECURE, PORTS, HOSTNAME) are handled by .env + flexible golden stack.
+      ZITADEL_FIRSTINSTANCE_PAT: "kinyu-bootstrap-pat-2026"
+      # Tell Zitadel it is running insecurely (no TLS)
+      ZITADEL_EXTERNALSECURE: "false"
+      ZITADEL_EXTERNALPORT: 80
+      ZITADEL_EXTERNALDOMAIN: "auth.kinyu.lan"
+      ZITADEL_TLS_ENABLED: "false"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.zitadel.rule=Host(`auth.kinyu.lan`)"
+      - "traefik.http.routers.zitadel.entrypoints=web"
+      - "traefik.http.services.zitadel.loadbalancer.server.port=8080"
+      - "traefik.docker.network=edge-external"
+    networks:
+      - zitadel
+      - traefik-net
+
+  # Override the 'db' service from the included stack (Zitadel's DB)
+  db:
+    # Ensure it maps to 5432 on host as per standard, or different if we prefer.
+    # The included stack maps 5432:5432. We can keep it or change it.
+    # Let's keep it 5432 for Zitadel DB, and put Kinyu DB on 5434.
+    ports:
+      - "5432:5432"
+
+volumes:
+  # We must define the volumes used by our local services
+  db_data:
+  # 'data' and 'zitadel-init-data' are defined in the included stack usually
+  # But often included volumes don't merge automatically if not declared?
+  # Docker Compose Specification says top-level elements are merged.
+
+networks:
+  zitadel:
+    driver: bridge
+  traefik-net:
+    driver: bridge
+    external: false # Disable external requirement for local dev

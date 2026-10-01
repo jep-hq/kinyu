@@ -1,0 +1,48 @@
+# General
+.DS_Store
+.thumbnails
+*.log
+*.tmp
+*.bak
+.env
+.env.*
+!.env.example
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Docker
+docker-compose.override.yml
+
+# Backend (Python)
+backend/__pycache__/
+backend/**/*.py[cod]
+backend/*$py.class
+backend/.venv/
+backend/venv/
+backend/env/
+backend/build/
+backend/dist/
+backend/*.egg-info/
+backend/.pytest_cache/
+backend/.coverage
+backend/htmlcov/
+backend/alembic.ini
+
+# Frontend (Node/Nuxt)
+frontend/node_modules/
+frontend/.output/
+frontend/.nuxt/
+frontend/dist/
+frontend/.cache/
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+frontend/pnpm-debug.log*
+frontend/.pnpm-store/
+
+docs/dragon
+docs/tes
